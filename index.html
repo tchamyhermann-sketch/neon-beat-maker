@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Physics Playground</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0b1020; color: #e8ecf8;
+  }
+  header { padding: 26px 20px 8px; text-align: center; }
+  h1 { margin: 0; font-size: clamp(20px, 4vw, 30px); letter-spacing: .5px; }
+  header p { margin: 6px 0 0; color: #93a0c0; font-size: 14px; }
+  nav { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 18px 12px; }
+  .tab {
+    background: #151c33; color: #aab6d4; border: 1px solid #222c4a;
+    padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: 14px;
+    transition: all .15s;
+  }
+  .tab:hover { border-color: #3b5bdb; color: #fff; }
+  .tab.active { background: #3b5bdb; border-color: #3b5bdb; color: #fff; }
+  main { flex: 1; width: min(900px, 100%); margin: 0 auto; padding: 0 16px 32px; }
+  .stage-wrap {
+    position: relative; height: min(58vh, 520px);
+    background: #0e1426; border: 1px solid #222c4a;
+    border-radius: 14px; overflow: hidden;
+  }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  .panel { display: none; margin-top: 16px; gap: 20px; flex-wrap: wrap; align-items: center; }
+  .panel.active { display: flex; }
+  label { font-size: 13px; color: #aab6d4; display: flex; align-items: center; gap: 8px; }
+  input[type=range] { width: 120px; accent-color: #3b5bdb; }
+  .act {
+    background: #3b5bdb; color: #fff; border: 0; padding: 9px 18px;
+    border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  .act:hover { background: #4c6ef5; }
+  .hint, .readout { font-size: 13px; color: #7e8db3; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Physics Playground</h1>
+    <p>Three small simulations. Poke at them.</p>
+  </header>
+
+  <nav>
+    <button class="tab active" data-sim="balls">Bouncing Balls</button>
+    <button class="tab" data-sim="pendulum">Pendulum</button>
+    <button class="tab" data-sim="projectile">Projectile</button>
+  </nav>
+
+  <main>
+    <div class="stage-wrap"><canvas id="stage"></canvas></div>
+
+    <div class="panel active" data-sim="balls">
+      <button class="act" id="btn-reset-balls">Reset balls</button>
+      <span class="hint">Click or tap the canvas to drop a new ball</span>
+    </div>
+
+    <div class="panel" data-sim="pendulum">
+      <label>Length <input type="range" id="p-len" min="20" max="90" value="60"></label>
+      <label>Gravity <input type="range" id="p-grav" min="1" max="25" value="9.8" step="0.1"></label>
+      <label>Damping <input type="range" id="p-damp" min="0" max="20" value="2" step="0.5"></label>
+      <button class="act" id="btn-reset-pend">Reset</button>
+    </div>
+
+    <div class="panel" data-sim="projectile">
+      <label>Angle <input type="range" id="j-angle" min="10" max="85" value="55"><span id="j-angle-val">55°</span></label>
+      <label>Speed <input type="range" id="j-speed" min="200" max="600" value="500"></label>
+      <button class="act" id="btn-launch">Launch</button>
+      <span class="readout" id="j-readout">—</span>
+    </div>
+  </main>
+
+<script>
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0;
+let currentSim = 'balls';
+const G = 900; // gravity in px/s² for the balls sim
+
+/* ---------- setup ---------- */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = canvas.clientWidth;
+  H = canvas.clientHeight;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/* ---------- bouncing balls ---------- */
+const COLORS = ['#4cc9f0','#f72585','#ffd166','#06d6a0','#b388ff','#ff8a5c'];
+let balls = [];
+
+function randBall(x, y) {
+  return {
+    x, y,
+    vx: (Math.random() - 0.5) * 600,
+    vy: (Math.random() - 0.5) * 300,
+    r: 10 + Math.random() * 16,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)]
+  };
+}
+
+function resetBalls() {
+  balls = [];
+  for (let i = 0; i < 8; i++) {
+    balls.push(randBall(60 + Math.random() * (W - 120), 60 + Math.random() * (H * 0.4)));
+  }
+}
+
+function updateBalls(dt) {
+  const rest = 0.8;
+  for (const b of balls) {
+    b.vy += G * dt;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (b.x - b.r < 0)     { b.x = b.r;      b.vx = -b.vx * rest; }
+    if (b.x + b.r > W)     { b.x = W - b.r;  b.vx = -b.vx * rest; }
+    if (b.y + b.r > H)     { b.y = H - b.r;  b.vy = -b.vy * rest; b.vx *= 0.99; }
+    if (b.y - b.r < 0)     { b.y = b.r;      b.vy = -b.vy * rest; }
+  }
+  // ball-on-ball collisions
+  for (let i = 0; i < balls.length; i++) {
+    for (let j = i + 1; j < balls.length; j++) {
+      const a = balls[i], b = balls[j];
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let d = Math.hypot(dx, dy);
+      if (d === 0) { dx = 0.01; d = 0.01; }
+      const minD = a.r + b.r;
+      if (d < minD) {
+        const nx = dx / d, ny = dy / d;
+        const overlap = (minD - d) / 2;
+        a.x -= nx * overlap; a.y -= ny * overlap;
+        b.x += nx * overlap; b.y += ny * overlap;
+        const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (vn < 0) {
+          const imp = -(1 + rest) * vn / 2; // equal masses
+          a.vx -= imp * nx; a.vy -= imp * ny;
+          b.vx += imp * nx; b.vy += imp * ny;
+        }
+      }
+    }
+  }
+}
+
+function drawBalls() {
+  for (const b of balls) {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fillStyle = b.color;
+    ctx.fill();
+  }
+}
+
+/* ---------- pendulum ---------- */
+const pend = { theta: Math.PI / 2, omega: 0, L: 0.6, g: 9.8, damping: 0.02, trail: [] };
+
+function resetPendulum() {
+  pend.theta = Math.PI / 2;
+  pend.omega = 0;
+  pend.trail = [];
+}
+
+function pendulumLengthPx() { return pend.L * H * 0.72; }
+
+function updatePendulum(dt) {
+  const Lpx = pendulumLengthPx();
+  const gpx = pend.g * 100;
+  const steps = 4, h = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    const alpha = -(gpx / Lpx) * Math.sin(pend.theta) - pend.damping * pend.omega;
+    pend.omega += alpha * h;
+    pend.theta += pend.omega * h;
+  }
+  const px = W / 2, py = 46;
+  pend.trail.push({
+    x: px + Lpx * Math.sin(pend.theta),
+    y: py + Lpx * Math.cos(pend.theta)
+  });
+  if (pend.trail.length > 180) pend.trail.shift();
+}
+
+function drawPendulum() {
+  const px = W / 2, py = 46, Lpx = pendulumLengthPx();
+  const bx = px + Lpx * Math.sin(pend.theta);
+  const by = py + Lpx * Math.cos(pend.theta);
+
+  if (pend.trail.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(pend.trail[0].x, pend.trail[0].y);
+    for (const p of pend.trail) ctx.lineTo(p.x, p.y);
+    ctx.strokeStyle = 'rgba(76,201,240,0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(bx, by);
+  ctx.strokeStyle = '#4a5a85';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(bx, by, 18, 0, Math.PI * 2);
+  ctx.fillStyle = '#f72585';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(px, py, 6, 0, Math.PI * 2);
+  ctx.fillStyle = '#93a0c0';
+  ctx.fill();
+}
+
+/* ---------- projectile ---------- */
+const proj = { flying: false, landed: false, trace: [], maxH: 0, t: 0, x: 0, y: 0, vx: 0, vy: 0 };
+
+function resetProjectile() {
+  proj.flying = false; proj.landed = false;
+  proj.trace = []; proj.maxH = 0; proj.t = 0;
+  proj.x = 50; proj.y = H - 50;
+  proj.startX = proj.x; proj.groundY = H - 50;
+  document.getElementById('j-readout').textContent = '—';
+}
+
+function launchProjectile() {
+  const groundY = H - 50;
+  const angle = +document.getElementById('j-angle').value * Math.PI / 180;
+  const speed = +document.getElementById('j-speed').value;
+  proj.x = 50; proj.y = groundY; proj.startX = 50; proj.groundY = groundY;
+  proj.vx = speed * Math.cos(angle);
+  proj.vy = -speed * Math.sin(angle);
+  proj.trace = []; proj.maxH = 0; proj.t = 0;
+  proj.flying = true; proj.landed = false;
+}
+
+function updateProjectile(dt) {
+  if (!proj.flying) return;
+  proj.vy += 600 * dt;
+  proj.x += proj.vx * dt;
+  proj.y += proj.vy * dt;
+  proj.t += dt;
+  proj.maxH = Math.max(proj.maxH, proj.groundY - proj.y);
+  proj.trace.push({ x: proj.x, y: proj.y });
+  if (proj.y >= proj.groundY) {
+    proj.y = proj.groundY;
+    proj.flying = false;
+    proj.landed = true;
+  }
+  const dist = proj.x - proj.startX;
+  document.getElementById('j-readout').textContent =
+    `distance ${dist.toFixed(0)} px · apex ${proj.maxH.toFixed(0)} px · t ${proj.t.toFixed(2)} s`;
+}
+
+function drawProjectile() {
+  const groundY = H - 50;
+
+  ctx.beginPath();
+  ctx.moveTo(0, groundY);
+  ctx.lineTo(W, groundY);
+  ctx.strokeStyle = '#2a3655';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (proj.trace.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(proj.trace[0].x, proj.trace[0].y);
+    for (const p of proj.trace) ctx.lineTo(p.x, p.y);
+    ctx.strokeStyle = 'rgba(255,209,102,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.arc(proj.x, proj.y, 12, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffd166';
+  ctx.fill();
+}
+
+/* ---------- controls ---------- */
+function resetSim(name) {
+  if (name === 'balls') resetBalls();
+  if (name === 'pendulum') resetPendulum();
+  if (name === 'projectile') resetProjectile();
+}
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSim = btn.dataset.sim;
+    document.querySelectorAll('.panel').forEach(p =>
+      p.classList.toggle('active', p.dataset.sim === currentSim));
+    resetSim(currentSim);
+  });
+});
+
+document.getElementById('btn-reset-balls').onclick = resetBalls;
+document.getElementById('btn-reset-pend').onclick = resetPendulum;
+document.getElementById('btn-launch').onclick = launchProjectile;
+
+const pLen = document.getElementById('p-len');
+const pGrav = document.getElementById('p-grav');
+const pDamp = document.getElementById('p-damp');
+function readPendulumControls() {
+  pend.L = +pLen.value / 100;
+  pend.g = +pGrav.value;
+  pend.damping = +pDamp.value / 100;
+}
+[pLen, pGrav, pDamp].forEach(el => el.addEventListener('input', readPendulumControls));
+
+const jAngle = document.getElementById('j-angle');
+jAngle.addEventListener('input', () => {
+  document.getElementById('j-angle-val').textContent = jAngle.value + '°';
+});
+
+canvas.addEventListener('pointerdown', e => {
+  if (currentSim !== 'balls') return;
+  const r = canvas.getBoundingClientRect();
+  if (balls.length > 40) balls.shift();
+  balls.push(randBall(e.clientX - r.left, e.clientY - r.top));
+});
+
+window.addEventListener('resize', () => { resize(); resetSim(currentSim); });
+
+/* ---------- main loop ---------- */
+let last = performance.now();
+function loop(now) {
+  let dt = (now - last) / 1000;
+  last = now;
+  dt = Math.min(dt, 0.033);
+
+  ctx.clearRect(0, 0, W, H);
+  if (currentSim === 'balls')       { updateBalls(dt);      drawBalls(); }
+  else if (currentSim === 'pendulum')  { updatePendulum(dt); drawPendulum(); }
+  else if (currentSim === 'projectile'){ updateProjectile(dt); drawProjectile(); }
+
+  requestAnimationFrame(loop);
+}
+
+/* ---------- boot ---------- */
+resize();
+readPendulumControls();
+resetSim('balls');
+requestAnimationFrame(loop);
+</script>
+</body>
+  </html>
